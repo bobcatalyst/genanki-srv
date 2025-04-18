@@ -1,6 +1,12 @@
 package genanki_srv
 
-import "math/rand/v2"
+import (
+    "io/fs"
+    "math/rand/v2"
+    "path/filepath"
+)
+
+const BaseAnswerTemplate = "{{FrontSide}}\n<hr id=\"answer\">\n"
 
 type AnkiModelField struct {
     Name   string  `json:"name"`
@@ -47,7 +53,7 @@ func NewAnkiModelTemplate(name, qfmt, afmt string) *AnkiModelTemplate {
     return &AnkiModelTemplate{
         Name: name,
         Qfmt: qfmt,
-        Afmt: afmt,
+        Afmt: BaseAnswerTemplate + afmt,
     }
 }
 
@@ -84,19 +90,17 @@ const (
         "\\begin{document}\n"
 )
 
-func NewAnkiModel(name string, templates []*AnkiModelTemplate, fields []*AnkiModelField) *AnkiModel {
-    css := DefaultModelCSS
-    latexPost := DefaultModelLatexPost
-    latexPre := DefaultModelLatexPre
-    return &AnkiModel{
-        Id:        int(rand.Int32()),
+func NewAnkiModel(name string, templates []*AnkiModelTemplate, fields []*AnkiModelField, id ...int) *AnkiModel {
+    am := &AnkiModel{
+        Id:        getID(id),
         Name:      name,
-        Templates: templates,
-        Fields:    fields,
-        Css:       &css,
-        LatexPre:  &latexPre,
-        LatexPost: &latexPost,
+        Templates: nonNilSlice(templates),
+        Fields:    nonNilSlice(fields),
     }
+    am.SetCSS(DefaultModelCSS)
+    am.SetLatexPre(DefaultModelLatexPre)
+    am.SetLatexPost(DefaultModelLatexPost)
+    return am
 }
 
 func (m *AnkiModel) SetCSS(css string) {
@@ -116,14 +120,19 @@ type AnkiNote struct {
     Fields    []string `json:"fields"`
     SortField *string  `json:"sort_field"`
     Tags      []string `json:"tags"`
-    Guid      string   `json:"guid"`
+    Guid      *string  `json:"guid"`
 }
 
-func NewAnkiNote(model *AnkiModel, fields []string) *AnkiNote {
+func NewAnkiNote(model *AnkiModel, fields []string, tags ...string) *AnkiNote {
     return &AnkiNote{
         Model:  model.Id,
-        Fields: fields,
+        Fields: nonNilSlice(fields),
+        Tags:   nonNilSlice(tags),
     }
+}
+
+func (n *AnkiNote) SetGuid(guid string) {
+    n.Guid = &guid
 }
 
 func (n *AnkiNote) SetSortField(sortField string) {
@@ -137,16 +146,69 @@ type AnkiDeck struct {
     Notes       []*AnkiNote `json:"notes"`
 }
 
-func NewAnkiDeck(name string, notes []*AnkiNote) *AnkiDeck {
+func NewAnkiDeck(name string, notes []*AnkiNote, id ...int) *AnkiDeck {
     return &AnkiDeck{
-        Id:    int(rand.Int32()),
+        Id:    getID(id),
         Name:  name,
         Notes: notes,
     }
 }
 
-type Generate struct {
+type GenerateRequest struct {
     Files  map[string][]byte `json:"files"`
     Decks  []*AnkiDeck       `json:"decks"`
     Models []*AnkiModel      `json:"models"`
+}
+
+func NewGenerateRequest(decksModelsFiles ...any) *GenerateRequest {
+    ad := &GenerateRequest{
+        Decks:  []*AnkiDeck{},
+        Models: []*AnkiModel{},
+        Files:  map[string][]byte{},
+    }
+
+    for i := 0; i < len(decksModelsFiles); i++ {
+        switch e := decksModelsFiles[i].(type) {
+        case *AnkiDeck:
+            ad.Decks = append(ad.Decks, e)
+        case *AnkiModel:
+            ad.Models = append(ad.Models, e)
+        case string:
+            if i++; i >= len(decksModelsFiles) {
+                panic("expected file after file name")
+            }
+            ad.AddFile(e, decksModelsFiles[i].([]byte))
+        default:
+            panic("unexpected type")
+        }
+    }
+
+    return ad
+}
+
+func (r *GenerateRequest) AddFile(name string, data []byte) {
+    r.Files[name] = data
+}
+
+func (r *GenerateRequest) AddFileFS(fsys fs.FS, name string) error {
+    b, err := fs.ReadFile(fsys, name)
+    if err != nil {
+        return err
+    }
+    r.AddFile(filepath.Base(name), b)
+    return nil
+}
+
+func getID(id []int) int {
+    if len(id) == 0 {
+        return int(rand.Int32())
+    }
+    return id[0]
+}
+
+func nonNilSlice[T any](s []T) []T {
+    if s == nil {
+        return []T{}
+    }
+    return s
 }

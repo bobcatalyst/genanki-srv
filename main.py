@@ -95,15 +95,15 @@ def _generate_anki_package(decks: list[genanki.Deck], files: dict[str, str], tim
         # Generate anki package
         pkg = genanki.Package(deck_or_decks=decks)
         _write_media_files(media_dir, files, pkg)
-        pkg.write_to_file(pkg_file, timestamp)
-    except:
+        pkg.write_to_file(pkg_filename, timestamp)
+    except Exception as e:
         # on exception delete file
         _force_delete(pkg_filename)
-        raise
+        raise e
     finally:
         # anki package zip containing media created, delete directory
         _force_delete_dir(media_dir)
-        return pkg_filename
+    return pkg_filename
 
 def _iterfile(pkg_file: str) -> Iterable[bytes]:
     try:
@@ -115,7 +115,31 @@ def _iterfile(pkg_file: str) -> Iterable[bytes]:
 def _generate_decks(request: GenerateRequest) -> list[genanki.Deck]:
     models = {}
     for model in request.models:
-        models[model.id] = model
+        models[model.id] = genanki.Model(
+            model_id=model.id,
+            name=model.name,
+            fields=[{
+                "name": field.name,
+                "font": field.font,
+                "rtl": field.rtl,
+                "size": field.size,
+                "sticky": field.sticky,
+            } for field in model.fields],
+            templates=[{
+                "name": template.name,
+                "qfmt": template.qfmt,
+                "afmt": template.afmt,
+                "bqfmt": template.bqfmt,
+                "bafmt": template.bafmt,
+                "bfont": template.bfont,
+                "bsize": template.bsize,
+            } for template in model.templates],
+            css=model.css,
+            model_type=model.model_type,
+            latex_pre=model.latex_pre,
+            latex_post=model.latex_post,
+            sort_field_index=model.sort_field_index,
+        )
 
     decks = []
     for rdeck in request.decks:
